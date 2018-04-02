@@ -39,10 +39,10 @@ import numpy as np
 from keras.layers.convolutional import Convolution1D
 from keras.utils.np_utils import to_categorical
 
-default_encoding = "utf-8"
-if sys.getdefaultencoding() != default_encoding:
-    reload(sys)
-    sys.setdefaultencoding(default_encoding)
+# default_encoding = "utf-8"
+# if sys.getdefaultencoding() != default_encoding:
+#     reload(sys)
+#     sys.setdefaultencoding(default_encoding)
 
 MAX_LEN = 25
 WORD_EMBEDDING_LEN = 300
@@ -70,57 +70,74 @@ from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 
+
+epochs = 3
+batchSize = 32
+
 class Net(nn.Module):
 
     def __init__(self):
         super(Net, self).__init__()
-        # 1 input image channel, 6 output channels, 5x5 square convolution
         # kernel
-        self.conv1 = nn.Conv2d(1, 6, 5)
-        self.conv2 = nn.Conv2d(6, 16, 5)
+        self.conv0 = nn.Conv1d(MAX_LEN,MAX_LEN, kernel_size=1,stride=1,  padding=0)
+        self.conv1 = nn.Conv1d(MAX_LEN,MAX_LEN, kernel_size=2,stride=1,  padding=0)
+        self.conv2 = nn.Conv1d(MAX_LEN,MAX_LEN, kernel_size=3,stride=1,  padding=0)
+        self.conv3 = nn.Conv1d(MAX_LEN,MAX_LEN, kernel_size=4,stride=1,  padding=0)
+
         # an affine operation: y = Wx + b
-        self.fc1 = nn.Linear(16 * 5 * 5, 120)
-        self.fc2 = nn.Linear(120, 84)
-        self.fc3 = nn.Linear(84, 10)
-        nn.GRU()
+#         self.fc1 = nn.Linear(16 * 5 * 5, 120)
+#         self.fc2 = nn.Linear(120, 84)
+#         self.fc3 = nn.Linear(84, 10)
+#         nn.GRU()
 
-    def forward(self, x):
-        # Max pooling over a (2, 2) window
-        x = F.max_pool2d(F.relu(self.conv1(x)), (2, 2))
+
+    def forward(self, input_a):
+        #
+        tower_a_0 = F.relu(self.conv0(input_a))
+        tower_a_1 = F.relu(self.conv1(tower_a_0))
+        tower_a_2 = F.relu(self.conv2(tower_a_0))
+        tower_a_3 = F.relu(self.conv3(tower_a_0))
+        print(tower_a_3)
+        merged_0 =  merge([tower_a_1,tower_a_2, tower_a_3], mode='concat', concat_axis=-1)
         # If the size is a square you can only specify a single number
-        x = F.max_pool2d(F.relu(self.conv2(x)), 2)
-        x = x.view(-1, self.num_flat_features(x))
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
-        return x
+#         x = F.max_pool2d(F.relu(self.conv2(x)), 2)
+#         x = x.view(-1, self.num_flat_features(x))
+#         x = F.relu(self.fc1(x))
+#         x = F.relu(self.fc2(x))
+#         x = self.fc3(x)
+        return tower_a_3
 
-    def num_flat_features(self, x):
-        size = x.size()[1:]  # all dimensions except the batch dimension
-        num_features = 1
-        for s in size:
-            num_features *= s
-        return num_features
+
+
 
 ##2.get training data
 
 # #2. LSTM for Q and A -- condition on Q
 # input_a = Input(shape=(MAX_LEN, WORD_EMBEDDING_LEN), name='input_a')
 # input_b = Input(shape=(3,),name='input_b')
-input_a = Variable(torch.from_numpy(sample_vector[0:127,:,:])).float()
-input_b = Variable(torch.from_numpy(sample_feature_vector)).float()
-target = Variable(torch.from_numpy(sample_label_vector)).float()
 
-#tower_a_0 = Convolution1D(SENTENCE_EMBEDDING_LEN, 1, border_mode='same', activation='relu')(input_a)
-# tower_a_1 = Convolution1D(SENTENCE_EMBEDDING_LEN, 2, border_mode='same', activation='relu')(tower_a_0)
-# tower_a_2 = Convolution1D(SENTENCE_EMBEDDING_LEN, 3, border_mode='same', activation='relu')(tower_a_0)
-# tower_a_3 = Convolution1D(SENTENCE_EMBEDDING_LEN, 4, border_mode='same', activation='relu')(tower_a_0)
 
-tower_a_0 = F.relu(nn.Conv1d(MAX_LEN,MAX_LEN, kernel_size=1,stride=1,  padding=0)(input_a))
-# tower_a_1 = Convolution1D(SENTENCE_EMBEDDING_LEN, 2, border_mode='same', activation='relu')(tower_a_0)
-# tower_a_2 = Convolution1D(SENTENCE_EMBEDDING_LEN, 3, border_mode='same', activation='relu')(tower_a_0)
-# tower_a_3 = Convolution1D(SENTENCE_EMBEDDING_LEN, 4, border_mode='same', activation='relu')(tower_a_0)
-print(tower_a_0)
+net =  Net()
+optimizer = optim.Adam(net.parameters(), lr=0.001, betas=(0.5, 0.999))
+
+def train():
+    net.train()
+    batches = np.shape(sample_vector)[0]%batchSize
+    for i in range(batches) :
+        input_a = Variable(torch.from_numpy(sample_vector[i*batchSize:i*batchSize+batchSize-1,:,:])).float()
+        input_b = Variable(torch.from_numpy(sample_feature_vector[i*batchSize:i*batchSize+batchSize-1,:,:])).float()
+        target = Variable(torch.from_numpy(sample_label_vector[i*batchSize:i*batchSize+batchSize-1,:,:])).float()
+        optimizer.zero_grad()
+        output = net(input_a,input_b)
+        loss = F.nll_loss(output, target)
+        loss.backward()
+        optimizer.step()
+        
+for epoch in range(1, epochs + 1):
+    train()
+
+
+
 # merged_0 =  merge([tower_a_1,tower_a_2, tower_a_3], mode='concat', concat_axis=-1)
 # forward_a_1 = GRU(SENTENCE_EMBEDDING_LEN, 
 #     go_backwards=True,
